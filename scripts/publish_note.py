@@ -37,7 +37,7 @@ from urllib.request import Request, urlopen
 
 # ── 常量 ─────────────────────────────────────────────────────────────────────
 
-BASE_URL = "https://api.mowen.cn"
+BASE_URL = "https://open.mowen.cn"
 API_NOTE_CREATE = "/api/open/api/v1/note/create"
 API_NOTE_EDIT = "/api/open/api/v1/note/edit"
 API_NOTE_SETTINGS = "/api/open/api/v1/note/settings"

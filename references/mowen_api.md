@@ -2,7 +2,7 @@
 
 ## 概述
 
-- **Base URL**: `https://api.mowen.cn`
+- **Base URL**: `https://open.mowen.cn`
 - **认证方式**: Bearer Token（API-KEY）
 - **请求头**: `Authorization: Bearer {API-KEY}`, `Content-Type: application/json`
 - **全局限频**: 所有 API 均限频 1次/秒
