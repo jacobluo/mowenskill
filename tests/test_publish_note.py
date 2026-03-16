@@ -32,7 +32,7 @@ def mock_api_request(api_key, path, payload):
         return {"noteId": "mock_note_001"}
     elif path == pn.API_NOTE_EDIT:
         return {"noteId": payload.get("noteId", "")}
-    elif path == pn.API_NOTE_SETTINGS:
+    elif path == pn.API_NOTE_SET:
         return {}
     elif path == pn.API_UPLOAD_PREPARE:
         return {
@@ -159,7 +159,7 @@ class TestBuildNoteAtom(unittest.TestCase):
         result = pn.build_note_atom("key", input_data)
         h = result["content"][0]
         self.assertEqual(h["type"], "heading")
-        self.assertEqual(h["attrs"]["level"], 2)
+        self.assertEqual(h["attrs"]["level"], "2")
         self.assertEqual(h["content"][0]["text"], "标题")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
@@ -172,9 +172,22 @@ class TestBuildNoteAtom(unittest.TestCase):
         }
         result = pn.build_note_atom("key", input_data)
         bq = result["content"][0]
-        self.assertEqual(bq["type"], "blockquote")
+        self.assertEqual(bq["type"], "quote")
         inner_para = bq["content"][0]
         self.assertEqual(inner_para["type"], "paragraph")
+
+    @patch.object(pn, "_api_request", side_effect=mock_api_request)
+    @patch.object(pn, "time")
+    def test_quote_alias(self, mock_time, mock_req):
+        """type='quote' 也应生成 quote 节点"""
+        input_data = {
+            "paragraphs": [
+                {"type": "quote", "text": "引用"}
+            ]
+        }
+        result = pn.build_note_atom("key", input_data)
+        bq = result["content"][0]
+        self.assertEqual(bq["type"], "quote")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
     @patch.object(pn, "time")
@@ -214,7 +227,7 @@ class TestBuildNoteAtom(unittest.TestCase):
         }
         result = pn.build_note_atom("key", input_data)
         img = result["content"][0]
-        self.assertEqual(img["type"], "noteImage")
+        self.assertEqual(img["type"], "image")
         self.assertEqual(img["attrs"]["uuid"], "mock_file_id_remote")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
@@ -229,9 +242,9 @@ class TestBuildNoteAtom(unittest.TestCase):
         }
         result = pn.build_note_atom("key", input_data)
         img = result["content"][0]
-        self.assertEqual(img["attrs"]["width"], 1920)
-        self.assertEqual(img["attrs"]["height"], 1080)
-        self.assertAlmostEqual(img["attrs"]["ratio"], 1.78, places=2)
+        self.assertEqual(img["attrs"]["width"], "1920")
+        self.assertEqual(img["attrs"]["height"], "1080")
+        self.assertEqual(img["attrs"]["ratio"], "1.78")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
     @patch.object(pn, "time")
@@ -244,6 +257,7 @@ class TestBuildNoteAtom(unittest.TestCase):
         }
         result = pn.build_note_atom("key", input_data)
         img = result["content"][0]
+        self.assertEqual(img["type"], "image")
         self.assertEqual(img["attrs"]["uuid"], "existing_file_id_123")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
@@ -285,7 +299,7 @@ class TestBuildNoteAtom(unittest.TestCase):
         types = [n["type"] for n in result["content"]]
         self.assertEqual(types, [
             "heading", "paragraph", "paragraph",
-            "noteImage", "blockquote", "bulletList",
+            "image", "quote", "bulletList",
         ])
 
 
@@ -333,7 +347,6 @@ class TestActionCreate(unittest.TestCase):
             "paragraphs": ["Hello"],
             "tags": ["test"],
             "autoPublish": True,
-            "privacyType": 1,
         }
         result = pn.action_create("key", input_data)
         self.assertEqual(result["noteId"], "mock_note_001")
@@ -344,19 +357,23 @@ class TestActionCreate(unittest.TestCase):
         path = last_call[0][1]
         payload = last_call[0][2]
         self.assertEqual(path, pn.API_NOTE_CREATE)
-        self.assertIn("noteContent", payload)
-        self.assertIn("noteSetting", payload)
-        self.assertEqual(payload["noteSetting"]["tags"], ["test"])
-        self.assertTrue(payload["noteSetting"]["autoPublish"])
-        self.assertEqual(payload["noteSetting"]["privacyType"], 1)
+        self.assertIn("body", payload)
+        self.assertIn("settings", payload)
+        self.assertEqual(payload["settings"]["tags"], ["test"])
+        self.assertTrue(payload["settings"]["autoPublish"])
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
     @patch.object(pn, "time")
     def test_create_no_settings(self, mock_time, mock_req):
-        """不传 tags/autoPublish/privacyType，noteSetting 应为空或不存在"""
+        """不传 tags/autoPublish，settings 应不存在"""
         input_data = {"paragraphs": ["Simple note"]}
         result = pn.action_create("key", input_data)
         self.assertEqual(result["action"], "create")
+
+        # payload 中不应有 settings
+        create_call = [c for c in mock_req.call_args_list if c[0][1] == pn.API_NOTE_CREATE]
+        payload = create_call[0][0][2]
+        self.assertNotIn("settings", payload)
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
     @patch.object(pn, "time")
@@ -370,7 +387,7 @@ class TestActionCreate(unittest.TestCase):
         # 验证 payload 中 tags 被截断
         create_call = [c for c in mock_req.call_args_list if c[0][1] == pn.API_NOTE_CREATE]
         payload = create_call[0][0][2]
-        self.assertEqual(len(payload["noteSetting"]["tags"]), 10)
+        self.assertEqual(len(payload["settings"]["tags"]), 10)
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
     @patch.object(pn, "time")
@@ -384,7 +401,7 @@ class TestActionCreate(unittest.TestCase):
         pn.action_create("key", input_data)
         create_call = [c for c in mock_req.call_args_list if c[0][1] == pn.API_NOTE_CREATE]
         payload = create_call[0][0][2]
-        self.assertEqual(len(payload["noteSetting"]["tags"][0]), 30)
+        self.assertEqual(len(payload["settings"]["tags"][0]), 30)
 
 
 class TestActionEdit(unittest.TestCase):
@@ -401,7 +418,8 @@ class TestActionEdit(unittest.TestCase):
         edit_call = [c for c in mock_req.call_args_list if c[0][1] == pn.API_NOTE_EDIT]
         payload = edit_call[0][0][2]
         self.assertEqual(payload["noteId"], "note_123")
-        self.assertIn("noteContent", payload)
+        self.assertIn("body", payload)
+        self.assertEqual(payload["body"]["type"], "doc")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
     @patch.object(pn, "time")
@@ -412,50 +430,74 @@ class TestActionEdit(unittest.TestCase):
 
 
 class TestActionSettings(unittest.TestCase):
-    """测试 action_settings"""
+    """测试 action_settings — 使用 section + privacy 格式"""
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
-    def test_privacy_setting(self, mock_req):
-        result = pn.action_settings("key", "note_123", {"privacyType": 2})
+    def test_privacy_public(self, mock_req):
+        result = pn.action_settings("key", "note_123", {"privacyType": "public"})
         self.assertEqual(result["noteId"], "note_123")
         self.assertEqual(result["action"], "settings")
 
         payload = mock_req.call_args[0][2]
-        self.assertEqual(payload["noteSetting"]["privacyType"], 2)
+        self.assertEqual(payload["noteId"], "note_123")
+        self.assertEqual(payload["section"], 1)
+        self.assertEqual(payload["settings"]["privacy"]["type"], "public")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
-    def test_forbid_share(self, mock_req):
-        pn.action_settings("key", "note_123", {"forbidShare": True})
+    def test_privacy_private(self, mock_req):
+        pn.action_settings("key", "note_123", {"privacyType": "private"})
         payload = mock_req.call_args[0][2]
-        self.assertTrue(payload["noteSetting"]["forbidShare"])
+        self.assertEqual(payload["settings"]["privacy"]["type"], "private")
 
     @patch.object(pn, "_api_request", side_effect=mock_api_request)
-    def test_expire_time(self, mock_req):
-        pn.action_settings("key", "note_123", {"expireTime": 1700000000})
-        payload = mock_req.call_args[0][2]
-        self.assertEqual(payload["noteSetting"]["expireTime"], 1700000000)
-
-    @patch.object(pn, "_api_request", side_effect=mock_api_request)
-    def test_multiple_settings(self, mock_req):
+    def test_rule_with_no_share(self, mock_req):
         pn.action_settings("key", "note_123", {
-            "privacyType": 3,
-            "forbidShare": False,
-            "expireTime": 1800000000,
+            "privacyType": "rule",
+            "noShare": True,
         })
         payload = mock_req.call_args[0][2]
-        self.assertEqual(payload["noteSetting"]["privacyType"], 3)
-        self.assertFalse(payload["noteSetting"]["forbidShare"])
-        self.assertEqual(payload["noteSetting"]["expireTime"], 1800000000)
+        self.assertEqual(payload["settings"]["privacy"]["type"], "rule")
+        self.assertTrue(payload["settings"]["privacy"]["rule"]["noShare"])
 
-    def test_no_settings_exits(self):
-        """无设置参数应退出"""
+    @patch.object(pn, "_api_request", side_effect=mock_api_request)
+    def test_rule_with_expire(self, mock_req):
+        pn.action_settings("key", "note_123", {
+            "privacyType": "rule",
+            "expireAt": 1700000000,
+        })
+        payload = mock_req.call_args[0][2]
+        self.assertEqual(payload["settings"]["privacy"]["type"], "rule")
+        self.assertEqual(payload["settings"]["privacy"]["rule"]["expireAt"], "1700000000")
+
+    @patch.object(pn, "_api_request", side_effect=mock_api_request)
+    def test_rule_with_all_options(self, mock_req):
+        pn.action_settings("key", "note_123", {
+            "privacyType": "rule",
+            "noShare": True,
+            "expireAt": 1800000000,
+        })
+        payload = mock_req.call_args[0][2]
+        privacy = payload["settings"]["privacy"]
+        self.assertEqual(privacy["type"], "rule")
+        self.assertTrue(privacy["rule"]["noShare"])
+        self.assertEqual(privacy["rule"]["expireAt"], "1800000000")
+
+    def test_no_privacy_exits(self):
+        """无 privacy 参数应退出"""
         with self.assertRaises(SystemExit):
             pn.action_settings("key", "note_123", {})
 
     def test_no_note_id_exits(self):
         """无 noteId 应退出"""
         with self.assertRaises(SystemExit):
-            pn.action_settings("key", "", {"privacyType": 1})
+            pn.action_settings("key", "", {"privacyType": "public"})
+
+    @patch.object(pn, "_api_request", side_effect=mock_api_request)
+    def test_api_path_is_note_set(self, mock_req):
+        """应调用 /api/open/api/v1/note/set 端点"""
+        pn.action_settings("key", "note_123", {"privacyType": "public"})
+        path = mock_req.call_args[0][1]
+        self.assertEqual(path, pn.API_NOTE_SET)
 
 
 class TestCLIParsing(unittest.TestCase):
@@ -476,23 +518,23 @@ class TestCLIParsing(unittest.TestCase):
 
     def test_settings_action(self):
         with patch("sys.argv", ["prog", "--action", "settings", "--api-key", "k",
-                                 "--note-id", "n1", "--privacy", "2", "--forbid-share"]):
+                                 "--note-id", "n1", "--privacy", "public"]):
             args = pn.parse_args()
             self.assertEqual(args.action, "settings")
-            self.assertEqual(args.privacy, 2)
-            self.assertTrue(args.forbid_share)
+            self.assertEqual(args.privacy, "public")
 
-    def test_settings_allow_share(self):
+    def test_settings_rule_no_share(self):
         with patch("sys.argv", ["prog", "--action", "settings", "--api-key", "k",
-                                 "--note-id", "n1", "--allow-share"]):
+                                 "--note-id", "n1", "--privacy", "rule", "--no-share"]):
             args = pn.parse_args()
-            self.assertTrue(args.allow_share)
+            self.assertEqual(args.privacy, "rule")
+            self.assertTrue(args.no_share)
 
-    def test_settings_expire_time(self):
+    def test_settings_expire_at(self):
         with patch("sys.argv", ["prog", "--action", "settings", "--api-key", "k",
-                                 "--note-id", "n1", "--expire-time", "1700000000"]):
+                                 "--note-id", "n1", "--privacy", "rule", "--expire-at", "1700000000"]):
             args = pn.parse_args()
-            self.assertEqual(args.expire_time, 1700000000)
+            self.assertEqual(args.expire_at, 1700000000)
 
     def test_invalid_action_exits(self):
         with patch("sys.argv", ["prog", "--action", "invalid"]):
@@ -500,7 +542,7 @@ class TestCLIParsing(unittest.TestCase):
                 pn.parse_args()
 
     def test_invalid_privacy_exits(self):
-        with patch("sys.argv", ["prog", "--action", "settings", "--privacy", "5"]):
+        with patch("sys.argv", ["prog", "--action", "settings", "--privacy", "unknown"]):
             with self.assertRaises(SystemExit):
                 pn.parse_args()
 
@@ -527,7 +569,6 @@ class TestEndToEndCreate(unittest.TestCase):
             ],
             "tags": ["测试", "单元测试"],
             "autoPublish": True,
-            "privacyType": 1,
         }
 
         # 写入临时文件

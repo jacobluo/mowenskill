@@ -16,7 +16,7 @@
   python publish_note.py --action edit --note-id NOTE_ID --input note.json
 
   # 修改笔记设置
-  python publish_note.py --action settings --note-id NOTE_ID --privacy 2 --forbid-share
+  python publish_note.py --action settings --note-id NOTE_ID --privacy rule --no-share
 
 环境变量:
   MOWEN_API_KEY  墨问 API Key（也可通过 --api-key 参数传入）
@@ -40,7 +40,7 @@ from urllib.request import Request, urlopen
 BASE_URL = "https://open.mowen.cn"
 API_NOTE_CREATE = "/api/open/api/v1/note/create"
 API_NOTE_EDIT = "/api/open/api/v1/note/edit"
-API_NOTE_SETTINGS = "/api/open/api/v1/note/settings"
+API_NOTE_SET = "/api/open/api/v1/note/set"
 API_UPLOAD_PREPARE = "/api/open/api/v1/upload/prepare"
 API_UPLOAD_URL = "/api/open/api/v1/upload/url"
 
@@ -67,13 +67,22 @@ def _api_request(api_key: str, path: str, payload: dict) -> dict:
             body = json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         body_text = e.read().decode("utf-8", errors="replace") if e.fp else ""
-        _die(f"HTTP {e.code} — {e.reason}\n{body_text}")
+        try:
+            err = json.loads(body_text)
+            msg = err.get("message", err.get("msg", body_text))
+            code = err.get("code", e.code)
+            _die(f"API 错误 (HTTP {e.code}): {msg} (code={code})")
+        except (json.JSONDecodeError, ValueError):
+            _die(f"HTTP {e.code} — {e.reason}\n{body_text}")
     except URLError as e:
         _die(f"网络错误: {e.reason}")
 
-    if body.get("code") != 0:
-        _die(f"API 业务错误: {body.get('msg', '未知错误')} (code={body.get('code')})")
-    return body.get("data", {})
+    # API 成功时直接返回响应体（无 code/data 包装）
+    # 错误响应含 code 字段（非 0）
+    if "code" in body and body["code"] != 0:
+        msg = body.get("message", body.get("msg", "未知错误"))
+        _die(f"API 业务错误: {msg} (code={body['code']})")
+    return body
 
 
 def _multipart_upload(endpoint: str, form_fields: dict, file_path: str) -> bytes:
@@ -279,19 +288,19 @@ def build_note_atom(api_key: str, input_data: dict) -> dict:
                 file_id = upload_image(api_key, src)
                 time.sleep(RATE_LIMIT_DELAY)
                 img_node = {
-                    "type": "noteImage",
+                    "type": "image",
                     "attrs": {"uuid": file_id},
                 }
                 if para.get("width") and para.get("height"):
-                    img_node["attrs"]["width"] = para["width"]
-                    img_node["attrs"]["height"] = para["height"]
-                    img_node["attrs"]["ratio"] = round(
+                    img_node["attrs"]["width"] = str(para["width"])
+                    img_node["attrs"]["height"] = str(para["height"])
+                    img_node["attrs"]["ratio"] = str(round(
                         para["width"] / para["height"], 2
-                    )
+                    ))
                 content_nodes.append(img_node)
 
             elif node_type == "heading":
-                level = para.get("level", 1)
+                level = str(para.get("level", 1))
                 text = para.get("text", "")
                 content_nodes.append({
                     "type": "heading",
@@ -299,10 +308,10 @@ def build_note_atom(api_key: str, input_data: dict) -> dict:
                     "content": [{"type": "text", "text": text}],
                 })
 
-            elif node_type == "blockquote":
+            elif node_type in ("blockquote", "quote"):
                 text = para.get("text", "")
                 content_nodes.append({
-                    "type": "blockquote",
+                    "type": "quote",
                     "content": [_build_paragraph([text])],
                 })
 
@@ -349,8 +358,8 @@ def action_create(api_key: str, input_data: dict) -> dict:
     """创建笔记。"""
     note_atom = build_note_atom(api_key, input_data)
 
-    # 构建 noteSetting
-    note_setting = {}
+    # 构建 settings
+    settings = {}
     tags = input_data.get("tags", [])
     if tags:
         if len(tags) > 10:
@@ -360,17 +369,14 @@ def action_create(api_key: str, input_data: dict) -> dict:
             if len(tag) > 30:
                 _warn(f"标签 '{tag}' 超过 30 字符，将截断")
                 tags[i] = tag[:30]
-        note_setting["tags"] = tags
+        settings["tags"] = tags
 
     if input_data.get("autoPublish") is not None:
-        note_setting["autoPublish"] = bool(input_data["autoPublish"])
+        settings["autoPublish"] = bool(input_data["autoPublish"])
 
-    if input_data.get("privacyType") is not None:
-        note_setting["privacyType"] = int(input_data["privacyType"])
-
-    payload = {"noteContent": {"noteAtom": note_atom}}
-    if note_setting:
-        payload["noteSetting"] = note_setting
+    payload = {"body": note_atom}
+    if settings:
+        payload["settings"] = settings
 
     _info("[创建] 调用创建 API...")
     data = _api_request(api_key, API_NOTE_CREATE, payload)
@@ -389,7 +395,7 @@ def action_edit(api_key: str, note_id: str, input_data: dict) -> dict:
 
     payload = {
         "noteId": note_id,
-        "noteContent": {"noteAtom": note_atom},
+        "body": note_atom,
     }
 
     _info(f"[编辑] 编辑笔记 {note_id}...")
@@ -401,25 +407,36 @@ def action_edit(api_key: str, note_id: str, input_data: dict) -> dict:
 
 
 def action_settings(api_key: str, note_id: str, settings: dict) -> dict:
-    """修改笔记设置。"""
+    """修改笔记隐私设置。"""
     if not note_id:
         _die("设置操作必须提供 --note-id 参数")
 
-    note_setting = {}
-    if settings.get("privacyType") is not None:
-        note_setting["privacyType"] = int(settings["privacyType"])
-    if settings.get("forbidShare") is not None:
-        note_setting["forbidShare"] = bool(settings["forbidShare"])
-    if settings.get("expireTime") is not None:
-        note_setting["expireTime"] = int(settings["expireTime"])
+    privacy_type = settings.get("privacyType")
+    if not privacy_type:
+        _die("至少需要 --privacy 参数 (public/private/rule)")
 
-    if not note_setting:
-        _die("至少需要一个设置参数: --privacy, --forbid-share, --expire-time")
+    privacy_settings = {"type": privacy_type}
 
-    payload = {"noteId": note_id, "noteSetting": note_setting}
+    # rule 类型支持 noShare 和 expireAt
+    if privacy_type == "rule":
+        rule = {}
+        if settings.get("noShare") is not None:
+            rule["noShare"] = bool(settings["noShare"])
+        if settings.get("expireAt") is not None:
+            rule["expireAt"] = str(settings["expireAt"])
+        if rule:
+            privacy_settings["rule"] = rule
+
+    payload = {
+        "noteId": note_id,
+        "section": 1,
+        "settings": {
+            "privacy": privacy_settings,
+        },
+    }
 
     _info(f"[设置] 修改笔记 {note_id} 的设置...")
-    data = _api_request(api_key, API_NOTE_SETTINGS, payload)
+    data = _api_request(api_key, API_NOTE_SET, payload)
     _info(f"[设置] 成功!")
     _info(f"  配额提醒: 设置 API 每日限额 100 次")
     return {"noteId": note_id, "action": "settings"}
@@ -460,7 +477,7 @@ def parse_args():
   python publish_note.py --action edit --note-id NOTE_ID --input note.json
 
   # 修改设置
-  python publish_note.py --action settings --note-id NOTE_ID --privacy 2 --forbid-share
+  python publish_note.py --action settings --note-id NOTE_ID --privacy public
 
 输入 JSON 格式（create/edit）:
   {
@@ -474,8 +491,7 @@ def parse_args():
       {"type": "bulletList", "items": ["项1", "项2"]}
     ],
     "tags": ["标签1", "标签2"],
-    "autoPublish": true,
-    "privacyType": 1
+    "autoPublish": true
   }
 """,
     )
@@ -506,26 +522,19 @@ def parse_args():
     settings_group = parser.add_argument_group("settings 操作参数")
     settings_group.add_argument(
         "--privacy",
-        type=int,
-        choices=[1, 2, 3, 4],
-        help="隐私类型: 1=公开, 2=仅自己, 3=部分可见, 4=不给谁看",
+        choices=["public", "private", "rule"],
+        help="隐私类型: public=公开, private=仅自己可见, rule=自定义规则",
     )
     settings_group.add_argument(
-        "--forbid-share",
+        "--no-share",
         action="store_true",
         default=None,
-        help="禁止分享",
+        help="禁止分享（仅 rule 模式）",
     )
     settings_group.add_argument(
-        "--allow-share",
-        action="store_true",
-        default=None,
-        help="允许分享",
-    )
-    settings_group.add_argument(
-        "--expire-time",
+        "--expire-at",
         type=int,
-        help="过期时间（Unix 时间戳，秒）",
+        help="过期时间（Unix 时间戳，秒；0=永不过期；仅 rule 模式）",
     )
 
     return parser.parse_args()
@@ -567,12 +576,10 @@ def main():
         settings = {}
         if args.privacy is not None:
             settings["privacyType"] = args.privacy
-        if args.forbid_share:
-            settings["forbidShare"] = True
-        elif args.allow_share:
-            settings["forbidShare"] = False
-        if args.expire_time is not None:
-            settings["expireTime"] = args.expire_time
+        if args.no_share:
+            settings["noShare"] = True
+        if args.expire_at is not None:
+            settings["expireAt"] = args.expire_at
 
         result = action_settings(api_key, args.note_id, settings)
 

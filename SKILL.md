@@ -78,12 +78,12 @@ Build a JSON object following this schema:
 | Rich text | `[{...}, ...]` | Array of text items with optional `bold`, `highlight`, `link` |
 | Heading | `{"type":"heading", "level":1, "text":"..."}` | h1-h6 heading |
 | Image | `{"type":"image", "src":"..."}` | Image (URL, local path, or fileId) |
-| Quote | `{"type":"blockquote", "text":"..."}` | Block quote |
+| Quote | `{"type":"blockquote", "text":"..."}` or `{"type":"quote", "text":"..."}` | Block quote |
 | Bullet list | `{"type":"bulletList", "items":["..."]}` | Unordered list |
 | Ordered list | `{"type":"orderedList", "items":["..."]}` | Numbered list |
 | Raw node | `{"type":"raw", "node":{...}}` | Direct NoteAtom node passthrough |
 
-**Privacy types:** `1` = public, `2` = self-only, `3` = partial, `4` = hidden
+**Privacy types:** `public` = public, `private` = self-only, `rule` = custom rules (with noShare/expireAt)
 
 ### 3. Save Input and Run Script
 
@@ -122,14 +122,14 @@ The input JSON format is identical to creation (the `paragraphs` field). The ent
 To change privacy, sharing, or expiration settings:
 
 ```bash
-# Set to self-only and forbid sharing
-python {SKILL_DIR}/scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy 2 --forbid-share
+# Set to private
+python {SKILL_DIR}/scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy private
 
-# Allow sharing again
-python {SKILL_DIR}/scripts/publish_note.py --action settings --note-id <NOTE_ID> --allow-share
+# Set to public
+python {SKILL_DIR}/scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy public
 
-# Set expiration time (Unix timestamp)
-python {SKILL_DIR}/scripts/publish_note.py --action settings --note-id <NOTE_ID> --expire-time 1735689600
+# Set custom rule: forbid sharing with expiration
+python {SKILL_DIR}/scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy rule --no-share --expire-at 1735689600
 ```
 
 ## Image Handling
@@ -186,8 +186,7 @@ Key search patterns for the reference file:
     {"type": "bulletList", "items": ["环境优雅", "咖啡好喝", "甜品精致"]}
   ],
   "tags": ["探店", "咖啡", "美食"],
-  "autoPublish": true,
-  "privacyType": 1
+  "autoPublish": true
 }
 ```
 
@@ -201,5 +200,5 @@ python publish_note.py --action edit --note-id note_abc123 --input updated_conte
 ### Make a note private
 
 ```bash
-python publish_note.py --action settings --note-id note_abc123 --privacy 2 --forbid-share
+python publish_note.py --action settings --note-id note_abc123 --privacy private
 ```

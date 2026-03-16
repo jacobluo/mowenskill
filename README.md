@@ -33,8 +33,7 @@ export MOWEN_API_KEY="your_api_key"
     [{"text": "重点内容", "bold": true}, " 普通文本"]
   ],
   "tags": ["日常", "心情"],
-  "autoPublish": true,
-  "privacyType": 1
+  "autoPublish": true
 }
 ```
 
@@ -61,14 +60,14 @@ python3 scripts/publish_note.py --action edit --note-id <NOTE_ID> --input update
 ### 修改笔记设置
 
 ```bash
-# 设为仅自己可见并禁止分享
-python3 scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy 2 --forbid-share
+# 设为仅自己可见
+python3 scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy private
 
-# 允许分享
-python3 scripts/publish_note.py --action settings --note-id <NOTE_ID> --allow-share
+# 设为公开
+python3 scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy public
 
-# 设置过期时间（Unix 时间戳）
-python3 scripts/publish_note.py --action settings --note-id <NOTE_ID> --expire-time 1735689600
+# 自定义规则：禁止分享 + 设置过期时间
+python3 scripts/publish_note.py --action settings --note-id <NOTE_ID> --privacy rule --no-share --expire-at 1735689600
 ```
 
 ## 段落类型
@@ -118,7 +117,7 @@ python3 run_tests.py
 
 - 全局速率限制：1 请求/秒
 - 标签：最多 10 个，每个最多 30 字符（超出自动截断）
-- 隐私类型：`1` 公开 / `2` 仅自己 / `3` 部分可见 / `4` 隐藏
+- 隐私类型：`public` 公开 / `private` 仅自己 / `rule` 自定义规则（noShare/expireAt）
 - 每日配额：创建 100 次、编辑 1000 次、设置 100 次、上传 200 次
 
 ## 许可证
