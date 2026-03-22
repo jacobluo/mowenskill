@@ -1,6 +1,7 @@
 ---
 name: mowen-note-publisher
-description: This skill should be used when the user wants to publish, create, edit, or manage notes on Mowen (墨问). Trigger phrases include 发布到墨问, 墨问笔记, mowen, publish note, create note on mowen, or when the user asks to publish content as a social-media-style note with text and images. This skill handles the full workflow of building structured NoteAtom content, uploading images (local files or URLs), and calling Mowen Open API to create, edit, or configure notes.
+description: Publish, edit, or configure notes on Mowen (墨问) via Open API. Use when user mentions 墨问, mowen, 发布笔记, publish note, or wants to create social-media-style notes with rich text and images.
+dependencies: "python>=3"
 ---
 
 # 墨问笔记发布 (Mowen Note Publisher)
