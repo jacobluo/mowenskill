@@ -59,3 +59,37 @@ Full API docs are in `references/mowen_api.md`. Key endpoints:
 ## Input JSON Format
 
 The script accepts a JSON object with `paragraphs` (array of mixed types), optional `tags` (max 10, each ≤30 chars), `autoPublish` (bool), and `privacyType`. Paragraph entries can be: plain strings, rich-text arrays (with bold/highlight/link), or typed objects (image, heading, blockquote, bulletList, orderedList, raw).
+
+## ClawHub 发布
+
+### 发布流程
+
+```bash
+# 登录检查
+clawhub whoami
+
+# 发布时需排除非必要文件（.git, .venv, .claude, README.md, CLAUDE.md 等）
+# clawhub publish 会打包目录下所有文件，不读 .gitignore，需用临时目录做干净发布
+mkdir -p /tmp/mowenskill-clean
+rsync -a --delete \
+  --exclude='.git' --exclude='.venv' --exclude='.DS_Store' \
+  --exclude='.claude' --exclude='.codebuddy' --exclude='__pycache__' \
+  --exclude='README.md' --exclude='CLAUDE.md' --exclude='.gitignore' \
+  ./ /tmp/mowenskill-clean/
+
+clawhub publish /tmp/mowenskill-clean --slug mowenskill --version <SEMVER> --changelog "<描述>"
+rm -rf /tmp/mowenskill-clean
+
+# 验证发布结果
+clawhub inspect mowenskill --files
+```
+
+### SKILL.md 规范要点（踩坑记录）
+
+1. **`description` ≤ 200 字符** — 超过会影响触发匹配。包含关键触发词即可，不要堆砌。
+2. **`name` 必须与部署时的文件夹名一致** — 提交到 ClawHub 时由 `--slug` 控制，本地目录名无所谓。
+3. **声明所需环境变量** — 在 frontmatter 中用 `metadata.openclaw.requires.env` 声明，否则安全扫描会标记 `SUSPICIOUS`。
+4. **不要有硬编码绝对路径** — shell 脚本中用 `$(dirname "$0")` 替代，否则安全扫描会告警。
+5. **`dependencies` 字段** — 即使零依赖也建议声明 `python>=3`。
+6. **用临时目录发布** — `clawhub publish` 不读 `.gitignore`，会把 `.venv/`、`.DS_Store` 等都打包进去。
+7. **`--slug` 参数** — 从临时目录发布时必须指定 `--slug`，否则 slug 会取临时目录名。

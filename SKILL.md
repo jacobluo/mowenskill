@@ -2,6 +2,11 @@
 name: mowen-note-publisher
 description: Publish, edit, or configure notes on Mowen (墨问) via Open API. Use when user mentions 墨问, mowen, 发布笔记, publish note, or wants to create social-media-style notes with rich text and images.
 dependencies: "python>=3"
+metadata:
+  openclaw:
+    requires:
+      env: ["MOWEN_API_KEY"]
+    primaryEnv: "MOWEN_API_KEY"
 ---
 
 # 墨问笔记发布 (Mowen Note Publisher)
